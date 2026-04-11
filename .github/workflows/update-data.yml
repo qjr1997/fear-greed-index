@@ -1,0 +1,112 @@
+name: Update Fear & Greed Index Data
+
+on:
+  schedule:
+    - cron: '30 7 * * *'  # UTC 07:30 = 北京时间 15:30
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        pip install akshare pandas numpy
+        
+    - name: Update data
+      run: |
+        python << 'PYEOF'
+        import json
+        import warnings
+        warnings.filterwarnings('ignore')
+        
+        import akshare as ak
+        import pandas as pd
+        import numpy as np
+        from datetime import datetime, timedelta
+        
+        print("Getting HS300 data...")
+        
+        # 获取数据
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=600)
+        
+        df = ak.index_zh_a_hist(
+            symbol='000300', 
+            period='daily',
+            start_date=start_date.strftime('%Y%m%d'),
+            end_date=end_date.strftime('%Y%m%d')
+        )
+        
+        df['日期'] = pd.to_datetime(df['日期'])
+        df.set_index('日期', inplace=True)
+        df = df.sort_index()
+        
+        # 计算指标
+        volatility = df['涨跌幅'].rolling(20).std() * np.sqrt(252)
+        vol_zscore = (volatility - volatility.rolling(252, min_periods=60).mean()) / volatility.rolling(252, min_periods=60).std()
+        vol_zscore = -vol_zscore
+        
+        vol_ma = df['成交量'].rolling(20).mean()
+        vol_ratio = df['成交量'] / vol_ma
+        vol_ratio_zscore = (vol_ratio - vol_ratio.rolling(252, min_periods=60).mean()) / vol_ratio.rolling(252, min_periods=60).std()
+        
+        price_ma50 = df['收盘'].rolling(50).mean()
+        price_dev = (df['收盘'] - price_ma50) / price_ma50 * 100
+        price_zscore = (price_dev - price_dev.rolling(252, min_periods=60).mean()) / price_dev.rolling(252, min_periods=60).std()
+        
+        # 合成FGI
+        fgi_raw = 50 + (vol_zscore * 15 + vol_ratio_zscore * 15 + price_zscore * 20) * 0.5
+        fgi = fgi_raw.clip(0, 100)
+        derivative = fgi.diff().rolling(5).mean()
+        
+        # 准备输出
+        latest_idx = fgi.dropna().index[-1]
+        latest_fgi = fgi.dropna().iloc[-1]
+        latest_der = derivative.dropna().iloc[-1] if not derivative.dropna().empty else 0
+        
+        chart_data = fgi.dropna().tail(252)
+        
+        output = {
+            "latest": {
+                "date": latest_idx.strftime('%Y-%m-%d'),
+                "fgi": round(float(latest_fgi), 1),
+                "derivative": round(float(latest_der), 1)
+            },
+            "chart": {
+                "dates": chart_data.index.strftime('%Y-%m-%d').tolist(),
+                "fgi": [round(float(x), 1) for x in chart_data.tolist()],
+                "derivative": [round(float(x), 1) for x in derivative.dropna().tail(252).tolist()],
+                "hs300": [round(float(x), 2) for x in df['收盘'].tail(252).tolist()],
+                "volatility_zscore": [round(float(x), 1) if not np.isnan(x) else 0 for x in vol_zscore.tail(252).tolist()],
+                "volume_zscore": [round(float(x), 1) if not np.isnan(x) else 0 for x in vol_ratio_zscore.tail(252).tolist()],
+                "futures_premium_zscore": [round(float(x), 1) if not np.isnan(x) else 0 for x in price_zscore.tail(252).tolist()]
+            },
+            "update_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        with open('docs/data.json', 'w', encoding='utf-8') as f:
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        
+        print(f"Updated: {latest_idx.strftime('%Y-%m-%d')} FGI={latest_fgi:.1f}")
+        PYEOF
+        
+    - name: Commit changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add docs/data.json
+        git diff --staged --quiet || git commit -m "Update data $(date +'%Y-%m-%d')"
+        git push

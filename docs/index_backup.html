@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>恐贪指数</title>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#2E86C1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 16px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        .header .subtitle {
+            font-size: 12px;
+            color: #999;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .fgi-value {
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .fgi-number {
+            font-size: 56px;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .fgi-label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 8px;
+        }
+        .fgi-derivative {
+            font-size: 13px;
+            color: #999;
+            margin-top: 4px;
+        }
+        .meter {
+            height: 24px;
+            background: linear-gradient(to right, #27AE60 0%, #27AE60 20%, #F39C12 20%, #F39C12 80%, #E74C3C 80%, #E74C3C 100%);
+            border-radius: 12px;
+            position: relative;
+            margin: 16px 0;
+        }
+        .meter-marker {
+            position: absolute;
+            top: -4px;
+            width: 4px;
+            height: 32px;
+            background: #333;
+            border-radius: 2px;
+            transform: translateX(-50%);
+            transition: left 0.5s ease;
+        }
+        .meter-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 13px;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            color: #666;
+        }
+        .info-value {
+            color: #333;
+            font-weight: 500;
+        }
+        .refresh-btn {
+            width: 100%;
+            padding: 14px;
+            background: #2E86C1;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+        .refresh-btn:active {
+            background: #1a6da3;
+        }
+        .refresh-btn:disabled {
+            background: #ccc;
+        }
+        .update-time {
+            text-align: center;
+            font-size: 11px;
+            color: #bbb;
+            margin-top: 12px;
+        }
+        .chart-container {
+            height: 200px;
+            margin-top: 16px;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .error {
+            text-align: center;
+            padding: 20px;
+            color: #E74C3C;
+            font-size: 13px;
+        }
+        /* 情绪等级颜色 */
+        .level-extreme-fear { color: #27AE60; }
+        .level-fear { color: #F39C12; }
+        .level-neutral { color: #95A5A6; }
+        .level-greed { color: #E67E22; }
+        .level-extreme-greed { color: #E74C3C; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>恐贪指数</h1>
+        <div class="subtitle">Fear & Greed Index (Z-Score k=33.3)</div>
+    </div>
+
+    <div id="app">
+        <div class="loading">加载中...</div>
+    </div>
+
+    <script>
+        // 配置
+        const DATA_URL = './data.json';
+        const REFRESH_INTERVAL = 5 * 60 * 1000; // 5分钟自动刷新
+
+        let currentData = null;
+
+        function getLevelText(value) {
+            if (value <= 20) return { text: '极度恐惧', class: 'level-extreme-fear' };
+            if (value <= 40) return { text: '恐惧', class: 'level-fear' };
+            if (value <= 60) return { text: '中性', class: 'level-neutral' };
+            if (value <= 80) return { text: '贪婪', class: 'level-greed' };
+            return { text: '极度贪婪', class: 'level-extreme-greed' };
+        }
+
+        function formatDerivative(d) {
+            if (d > 5) return `+${d.toFixed(1)} 加速贪婪`;
+            if (d < -5) return `${d.toFixed(1)} 加速恐惧`;
+            if (d > 0) return `+${d.toFixed(1)} 偏向贪婪`;
+            if (d < 0) return `${d.toFixed(1)} 偏向恐惧`;
+            return '0.0 平稳';
+        }
+
+        function drawChart(canvas, dates, values) {
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            
+            const width = rect.width;
+            const height = rect.height;
+            const padding = { top: 10, right: 10, bottom: 25, left: 10 };
+            
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+            
+            ctx.clearRect(0, 0, width, height);
+            
+            // 背景色带
+            const bandHeight = chartHeight / 100;
+            for (let i = 0; i <= 100; i += 2) {
+                let color;
+                if (i <= 20) color = 'rgba(39, 174, 96, 0.08)';
+                else if (i >= 80) color = 'rgba(231, 76, 60, 0.08)';
+                else continue;
+                
+                const y = padding.top + chartHeight - (i * bandHeight);
+                ctx.fillStyle = color;
+                ctx.fillRect(padding.left, y - bandHeight, chartWidth, bandHeight * 2);
+            }
+            
+            // 参考线
+            ctx.strokeStyle = 'rgba(200,200,200,0.3)';
+            ctx.lineWidth = 0.5;
+            [20, 50, 80].forEach(v => {
+                const y = padding.top + chartHeight - (v / 100 * chartHeight);
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(padding.left + chartWidth, y);
+                ctx.stroke();
+            });
+            
+            // 绘制曲线
+            if (values.length > 1) {
+                ctx.beginPath();
+                ctx.strokeStyle = '#2E86C1';
+                ctx.lineWidth = 2;
+                ctx.lineJoin = 'round';
+                
+                values.forEach((v, i) => {
+                    const x = padding.left + (i / (values.length - 1)) * chartWidth;
+                    const y = padding.top + chartHeight - ((v + 10) / 120 * chartHeight); // 稍微偏移以显示负值
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+                
+                // 填充
+                ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+                ctx.lineTo(padding.left, padding.top + chartHeight);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(46, 134, 193, 0.1)';
+                ctx.fill();
+            }
+            
+            // X轴日期标签（只显示部分）
+            ctx.fillStyle = '#999';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            const step = Math.ceil(dates.length / 6);
+            for (let i = 0; i < dates.length; i += step) {
+                const x = padding.left + (i / (dates.length - 1)) * chartWidth;
+                const dateStr = dates[i].slice(5); // MM-DD
+                ctx.fillText(dateStr, x, height - 8);
+            }
+        }
+
+        function render(data) {
+            const level = getLevelText(data.latest.fgi);
+            const der = formatDerivative(data.latest.derivative);
+            const markerPercent = Math.max(0, Math.min(100, data.latest.fgi));
+            
+            document.getElementById('app').innerHTML = `
+                <div class="card">
+                    <div class="fgi-value">
+                        <div class="fgi-number ${level.class}">${data.latest.fgi.toFixed(1)}</div>
+                        <div class="fgi-label ${level.class}">${level.text}</div>
+                        <div class="fgi-derivative">导数: ${der}</div>
+                    </div>
+                    <div class="meter">
+                        <div class="meter-marker" style="left: ${markerPercent}%"></div>
+                    </div>
+                    <div class="meter-labels">
+                        <span>0</span>
+                        <span>20</span>
+                        <span>50</span>
+                        <span>80</span>
+                        <span>100</span>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="chart-container">
+                        <canvas id="chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="info-row">
+                        <span class="info-label">日期</span>
+                        <span class="info-value">${data.latest.date}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">波动率Z-Score</span>
+                        <span class="info-value">${(data.chart.volatility_zscore?.slice(-1)[0] || 0).toFixed(1)}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">成交量Z-Score</span>
+                        <span class="info-value">${(data.chart.volume_zscore?.slice(-1)[0] || 0).toFixed(1)}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">期货升贴水Z-Score</span>
+                        <span class="info-value">${(data.chart.futures_premium_zscore?.slice(-1)[0] || 0).toFixed(1)}</span>
+                    </div>
+                </div>
+                
+                <button class="refresh-btn" onclick="loadData()">刷新数据</button>
+                <div class="update-time">更新时间: ${data.update_time}</div>
+            `;
+            
+            // 绘制图表
+            setTimeout(() => {
+                const canvas = document.getElementById('chart');
+                if (canvas && data.chart && data.chart.dates) {
+                    drawChart(canvas, data.chart.dates, data.chart.fgi);
+                }
+            }, 50);
+        }
+
+        async function loadData() {
+            const btn = document.querySelector('.refresh-btn');
+            if (btn) btn.disabled = true;
+            
+            try {
+                // 加时间戳防止缓存
+                const url = DATA_URL + '?t=' + Date.now();
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('加载失败');
+                
+                const data = await response.json();
+                currentData = data;
+                render(data);
+            } catch (err) {
+                console.error(err);
+                if (!currentData) {
+                    document.getElementById('app').innerHTML = `
+                        <div class="error">加载失败，请检查网络连接<br>${err.message}</div>
+                        <button class="refresh-btn" onclick="loadData()">重试</button>
+                    `;
+                }
+            }
+        }
+
+        // 初始加载
+        loadData();
+        
+        // 定时刷新
+        setInterval(loadData, REFRESH_INTERVAL);
+        
+        // PWA支持
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(() => {});
+        }
+    </script>
+</body>
+</html>
+
