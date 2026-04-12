@@ -36,48 +36,144 @@ jobs:
         import pandas as pd
         import numpy as np
         from datetime import datetime, timedelta
+        import time as _time
         
-        print("Getting HS300 data...")
+        print("Getting market data...")
         
-        # 获取数据
+        # 数据范围
         end_date = datetime.now()
         start_date = end_date - timedelta(days=600)
+        start_str = start_date.strftime('%Y%m%d')
+        end_str = end_date.strftime('%Y%m%d')
         
-        df = ak.index_zh_a_hist(
-            symbol='000300', 
-            period='daily',
-            start_date=start_date.strftime('%Y%m%d'),
-            end_date=end_date.strftime('%Y%m%d')
-        )
+        # 获取基础数据
+        print("Fetching HS300...")
+        hs300 = ak.stock_zh_a_hist_tx(symbol='sh000300', start_date=start_str, end_date=end_str)
+        hs300['date'] = pd.to_datetime(hs300['date'])
+        hs300 = hs300.set_index('date')['close'].rename('hs300')
         
-        df['日期'] = pd.to_datetime(df['日期'])
-        df.set_index('日期', inplace=True)
-        df = df.sort_index()
+        print("Fetching Bond Index...")
+        bond = ak.stock_zh_a_hist_tx(symbol='sh000012', start_date=start_str, end_date=end_str)
+        bond['date'] = pd.to_datetime(bond['date'])
+        bond = bond.set_index('date')['close'].rename('bond_index')
         
-        # 计算指标
-        volatility = df['涨跌幅'].rolling(20).std() * np.sqrt(252)
-        vol_zscore = (volatility - volatility.rolling(252, min_periods=60).mean()) / volatility.rolling(252, min_periods=60).std()
-        vol_zscore = -vol_zscore
+        print("Fetching Turnover...")
+        sh = ak.stock_zh_a_hist_tx(symbol='sh000001', start_date=start_str, end_date=end_str)
+        sz = ak.stock_zh_a_hist_tx(symbol='sz399001', start_date=start_str, end_date=end_str)
+        sh['date'] = pd.to_datetime(sh['date'])
+        sz['date'] = pd.to_datetime(sz['date'])
+        turnover_sh = sh.set_index('date')['amount'].rename('turnover_sh')
+        turnover_sz = sz.set_index('date')['amount'].rename('turnover_sz')
         
-        vol_ma = df['成交量'].rolling(20).mean()
-        vol_ratio = df['成交量'] / vol_ma
-        vol_ratio_zscore = (vol_ratio - vol_ratio.rolling(252, min_periods=60).mean()) / vol_ratio.rolling(252, min_periods=60).std()
+        print("Fetching VIX...")
+        try:
+            vix_df = ak.index_option_50etf_qvix()
+            vix_df['date'] = pd.to_datetime(vix_df['date'])
+            vix = vix_df.set_index('date')['close'].rename('vix')
+        except:
+            # 如果VIX获取失败，用波动率代替
+            returns = hs300.pct_change()
+            vix = returns.rolling(20).std() * np.sqrt(252) * 100
+            vix = vix.rename('vix')
         
-        price_ma50 = df['收盘'].rolling(50).mean()
-        price_dev = (df['收盘'] - price_ma50) / price_ma50 * 100
-        price_zscore = (price_dev - price_dev.rolling(252, min_periods=60).mean()) / price_dev.rolling(252, min_periods=60).std()
+        print("Fetching Futures...")
+        try:
+            futures = ak.futures_main_sina(symbol='IF0')
+            futures['日期'] = pd.to_datetime(futures['日期'])
+            futures = futures.set_index('日期')['收盘价'].rename('if_close')
+        except:
+            futures = None
         
-        # 合成FGI
-        fgi_raw = 50 + (vol_zscore * 15 + vol_ratio_zscore * 15 + price_zscore * 20) * 0.5
+        # 合并数据
+        print("Merging data...")
+        raw = pd.concat([vix, turnover_sh, turnover_sz, hs300, bond], axis=1)
+        if futures is not None:
+            raw = raw.join(futures, how='outer')
+        raw = raw.sort_index()
+        
+        # 计算子指标
+        print("Calculating indicators...")
+        indicators = pd.DataFrame(index=raw.index)
+        
+        # 1. 波动率 (VIX)
+        indicators['volatility'] = raw['vix']
+        
+        # 2. 成交量偏离度
+        total_turnover = raw['turnover_sh'] + raw['turnover_sz']
+        ma20 = total_turnover.rolling(window=20, min_periods=10).mean()
+        indicators['volume'] = (total_turnover / ma20 - 1) * 100
+        
+        # 3. 期货升贴水率
+        if 'if_close' in raw.columns:
+            aligned = pd.concat([raw['if_close'], raw['hs300']], axis=1).dropna()
+            basis = (aligned['if_close'] - aligned['hs300']) / aligned['hs300'] * 100
+            annualized = basis * (252 / 30)
+            indicators['futures_premium'] = annualized.rolling(window=10, min_periods=5).mean()
+        else:
+            indicators['futures_premium'] = pd.Series(dtype=float)
+        
+        # 4. 避险需求 (股债回报差)
+        stock_ret = raw['hs300'].pct_change(20) * 100
+        bond_ret = raw['bond_index'].pct_change(20) * 100
+        indicators['safe_haven'] = stock_ret - bond_ret
+        
+        # 5. 股价强度 (用价格偏离度代替，因为无法获取全市场股票)
+        price_ma50 = raw['hs300'].rolling(50).mean()
+        indicators['stock_strength'] = (raw['hs300'] - price_ma50) / price_ma50 * 100
+        
+        # Z-Score 计算函数
+        def calc_zscore(series, k=33.3, window=252, reverse=False):
+            result = pd.Series(index=series.index, dtype=float)
+            for i in range(len(series)):
+                if i < window - 1:
+                    continue
+                window_data = series.iloc[i-window+1:i+1].dropna()
+                if len(window_data) < window // 2:
+                    continue
+                val = series.iloc[i]
+                mean = window_data.mean()
+                std = window_data.std()
+                if std == 0 or np.isnan(std):
+                    result.iloc[i] = 50
+                    continue
+                z = (val - mean) / std
+                score = 50 + z * k
+                if reverse:
+                    score = 100 - score
+                # 子指标Z-Score不截断
+                result.iloc[i] = score
+            return result
+        
+        # 计算各子指标Z-Score
+        print("Calculating Z-Scores...")
+        zscores = pd.DataFrame(index=indicators.index)
+        
+        zscores['volatility_zscore'] = calc_zscore(indicators['volatility'], k=33.3, window=252, reverse=True)
+        zscores['volume_zscore'] = calc_zscore(indicators['volume'], k=33.3, window=252, reverse=False)
+        zscores['futures_premium_zscore'] = calc_zscore(indicators['futures_premium'], k=33.3, window=252, reverse=False)
+        zscores['safe_haven_zscore'] = calc_zscore(indicators['safe_haven'], k=33.3, window=252, reverse=False)
+        zscores['stock_strength_zscore'] = calc_zscore(indicators['stock_strength'], k=33.3, window=252, reverse=False)
+        
+        # 等权平均得到FGI
+        fgi_raw = zscores.mean(axis=1)
+        
+        # 关键修复：FGI限制在0-100范围内
         fgi = fgi_raw.clip(0, 100)
-        derivative = fgi.diff().rolling(5).mean()
+        
+        # 导数
+        derivative = fgi.diff()
         
         # 准备输出
+        print("Preparing output...")
         latest_idx = fgi.dropna().index[-1]
         latest_fgi = fgi.dropna().iloc[-1]
         latest_der = derivative.dropna().iloc[-1] if not derivative.dropna().empty else 0
         
+        # 获取最新的子指标Z-Score
+        latest_zscores = zscores.loc[latest_idx] if latest_idx in zscores.index else zscores.iloc[-1]
+        
         chart_data = fgi.dropna().tail(252)
+        chart_zscores = zscores.loc[chart_data.index]
         
         output = {
             "latest": {
@@ -89,24 +185,29 @@ jobs:
                 "dates": chart_data.index.strftime('%Y-%m-%d').tolist(),
                 "fgi": [round(float(x), 1) for x in chart_data.tolist()],
                 "derivative": [round(float(x), 1) for x in derivative.dropna().tail(252).tolist()],
-                "hs300": [round(float(x), 2) for x in df['收盘'].tail(252).tolist()],
-                "volatility_zscore": [round(float(x), 1) if not np.isnan(x) else 0 for x in vol_zscore.tail(252).tolist()],
-                "volume_zscore": [round(float(x), 1) if not np.isnan(x) else 0 for x in vol_ratio_zscore.tail(252).tolist()],
-                "futures_premium_zscore": [round(float(x), 1) if not np.isnan(x) else 0 for x in price_zscore.tail(252).tolist()]
+                "hs300": [round(float(x), 2) for x in raw['hs300'].tail(252).tolist()],
+                "volatility_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['volatility_zscore'].tolist()],
+                "volume_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['volume_zscore'].tolist()],
+                "futures_premium_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['futures_premium_zscore'].tolist()],
+                "safe_haven_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['safe_haven_zscore'].tolist()],
+                "stock_strength_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['stock_strength_zscore'].tolist()]
             },
             "update_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
-        with open('docs/data.json', 'w', encoding='utf-8') as f:
+        with open('data.json', 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
         
         print(f"Updated: {latest_idx.strftime('%Y-%m-%d')} FGI={latest_fgi:.1f}")
+        print(f"Z-Scores: Vol={latest_zscores['volatility_zscore']:.1f}, VolRatio={latest_zscores['volume_zscore']:.1f}, "
+              f"Future={latest_zscores['futures_premium_zscore']:.1f}, SafeHaven={latest_zscores['safe_haven_zscore']:.1f}, "
+              f"StockStr={latest_zscores['stock_strength_zscore']:.1f}")
         PYEOF
         
     - name: Commit changes
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add docs/data.json
+        git add data.json
         git diff --staged --quiet || git commit -m "Update data $(date +'%Y-%m-%d')"
         git push
