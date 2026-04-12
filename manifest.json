@@ -1,0 +1,16 @@
+{
+  "name": "恐贪指数",
+  "short_name": "恐贪指数",
+  "description": "Fear & Greed Index - Z-Score均值偏离法",
+  "start_url": "/fear-greed-index/",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#2E86C1",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%232E86C1' width='192' height='192' rx='24'/%3E%3Ctext x='96' y='120' font-size='80' text-anchor='middle' fill='white'%3EF%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
