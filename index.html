@@ -209,6 +209,23 @@
 
         .method-body li { margin: 3px 0; }
 
+        /* 放进右栏「计算方法」卡片内时的紧凑样式（顶部不再占位） */
+        .info-card .method {
+            max-width: none;
+            margin: 12px 0 0;
+            padding: 0;
+        }
+
+        .info-card .method-body {
+            font-size: 12px;
+            padding: 10px 12px;
+            line-height: 1.7;
+        }
+
+        .info-card .m-code { font-size: 11px; padding: 6px 8px; }
+
+        .info-card .method-body ul { padding-left: 16px; }
+
         .m-h { color: #c8d0da; font-weight: 600; margin-top: 12px; }
 
         .m-h:first-child { margin-top: 0; }
@@ -444,32 +461,6 @@
                 
                 <div class="v2-line" id="v2Line" style="display:none"></div>
 
-                <details class="method">
-                    <summary>计算方法（点开看）</summary>
-                    <div class="method-body">
-                        <div class="m-h">一、五个原始指标</div>
-                        <ul>
-                            <li><b>波动率</b>：中国波指 VIX（50ETF 期权隐含波动率）。<i>越低 = 越平静</i></li>
-                            <li><b>成交量</b>：(沪深两市成交额 ÷ 20 日均额 − 1) × 100</li>
-                            <li><b>期指升贴水</b>：(IF 主力 − 沪深300) ÷ 沪深300 × 100 × 252/30，取 10 日均</li>
-                            <li><b>避险需求</b>：沪深300 20 日涨幅 − 中债指数 20 日涨幅</li>
-                            <li><b>股价强度</b>：(沪深300 − 50 日均线) ÷ 50 日均线 × 100</li>
-                        </ul>
-                        <div class="m-h">二、标准化成 0~100 分（V1，主口径）</div>
-                        <p class="m-code">z = (今日值 − 过去 252 日均值) ÷ 过去 252 日标准差<br>
-                        得分 = 50 + z × 33.3　（波动率取 100 − 得分，反向）</p>
-                        <p>50 = 一年中位；±1.5 个标准差就打到 0 / 100。单项不截断，所以会出现 &gt;100 或负分。</p>
-                        <div class="m-h">三、合成</div>
-                        <p class="m-code">恐贪指数 = 五项等权平均，再截断到 0~100<br>
-                        导数 = 今日 − 昨日（看情绪在升温还是退潮）</p>
-                        <p>五档：&lt;20 极度恐惧 ｜ 20~40 恐惧 ｜ 40~60 中性 ｜ 60~80 贪婪 ｜ &gt;80 极度贪婪</p>
-                        <div class="m-h">四、V2 分位版（并列对照，不替代 V1）</div>
-                        <p>同样五个指标，但改用<b>分位数</b>（当前值在过去 N 个交易日里的百分位，天然 0~100，对极值更稳），并且<b>双窗口</b>：1 年看短期、3 年定基准；再加「<b>温度 × 变化</b>」四象限——低温回升 / 低温走弱 / 高温走强 / 高温回落。</p>
-                        <div class="m-h">五、一句话解读</div>
-                        <p>五个分项各分 7 档（≤8 / ≤22 / ≤38 / ≤62 / ≤78 / ≤92 / &gt;92），按优先级匹配 18 种局面（全面恐惧、平静阴跌、放量下跌、期指贴水、指标分裂…），主句 + 最强/最弱项依据。只描述状态，不预测、不构成建议。</p>
-                    </div>
-                </details>
-
                 <div class="stats-title" style="text-align: center; color: #8892a0; font-size: 12px; margin-bottom: 8px;">分布统计 (全历史)</div>
                 <div class="stats-grid">
                     <div class="stat-item bg-extreme-fear">
@@ -559,6 +550,31 @@
                         <span class="info-label">基准值</span>
                         <span class="info-value">50（中性）</span>
                     </div>
+                    <details class="method">
+                        <summary>计算方法（点开看）</summary>
+                        <div class="method-body">
+                            <div class="m-h">一、五个原始指标</div>
+                            <ul>
+                            <li><b>波动率</b>：中国波指 VIX（50ETF 期权隐含波动率）。<i>越低 = 越平静</i></li>
+                            <li><b>成交量</b>：(沪深两市成交额 ÷ 20 日均额 − 1) × 100</li>
+                            <li><b>期指升贴水</b>：(IF 主力 − 沪深300) ÷ 沪深300 × 100 × 252/30，取 10 日均</li>
+                            <li><b>避险需求</b>：沪深300 20 日涨幅 − 中债指数 20 日涨幅</li>
+                            <li><b>股价强度</b>：(沪深300 − 50 日均线) ÷ 50 日均线 × 100</li>
+                            </ul>
+                            <div class="m-h">二、标准化成 0~100 分（V1，主口径）</div>
+                            <p class="m-code">z = (今日值 − 过去 252 日均值) ÷ 过去 252 日标准差<br>
+                            得分 = 50 + z × 33.3　（波动率取 100 − 得分，反向）</p>
+                            <p>50 = 一年中位；±1.5 个标准差就打到 0 / 100。单项不截断，所以会出现 &gt;100 或负分。</p>
+                            <div class="m-h">三、合成</div>
+                            <p class="m-code">恐贪指数 = 五项等权平均，再截断到 0~100<br>
+                            导数 = 今日 − 昨日（看情绪在升温还是退潮）</p>
+                            <p>五档：&lt;20 极度恐惧 ｜ 20~40 恐惧 ｜ 40~60 中性 ｜ 60~80 贪婪 ｜ &gt;80 极度贪婪</p>
+                            <div class="m-h">四、V2 分位版（并列对照，不替代 V1）</div>
+                            <p>同样五个指标，但改用<b>分位数</b>（当前值在过去 N 个交易日里的百分位，天然 0~100，对极值更稳），并且<b>双窗口</b>：1 年看短期、3 年定基准；再加「<b>温度 × 变化</b>」四象限——低温回升 / 低温走弱 / 高温走强 / 高温回落。</p>
+                            <div class="m-h">五、一句话解读</div>
+                            <p>五个分项各分 7 档（≤8 / ≤22 / ≤38 / ≤62 / ≤78 / ≤92 / &gt;92），按优先级匹配 18 种局面（全面恐惧、平静阴跌、放量下跌、期指贴水、指标分裂…），主句 + 最强/最弱项依据。只描述状态，不预测、不构成建议。</p>
+                        </div>
+                    </details>
                 </div>
                 
                 <div class="info-card">
@@ -772,6 +788,8 @@
             const shIndexNorm = normShIndex(winFrom, totalDays - 1);
             
             const option = {
+                // 数据量大（2609 点）时关闭入场动画：渲染更稳、重建时不闪
+                animation: false,
                 backgroundColor: 'transparent',
                 tooltip: {
                     trigger: 'axis',
@@ -815,7 +833,8 @@
                     axisLabel: { 
                         color: '#8892a0',
                         rotate: 45,
-                        interval: Math.floor(data.dates.length / 10),
+                        // 自动间隔：写死 Math.floor(dates.length/10) 会让缩放后只剩一个月份标签
+                        interval: 'auto',
                         formatter: function(value) {
                             return value.substring(0, 7); // YYYY-MM
                         }
@@ -969,6 +988,13 @@
                 series: [{ name: '上证指数', data: normShIndex(r.start, r.end) }],
                 yAxis: [{}, { axisLabel: { formatter: shAxisFormatter } }]
             }, { lazyUpdate: true });
+
+            // 范围文字跟随可见窗口，避免"标题写全历史、图里只有近1年"的错位感
+            const dates = fullData.chart.dates;
+            const rangeEl = document.getElementById('chartRange');
+            if (rangeEl && dates[r.start] && dates[r.end]) {
+                rangeEl.textContent = `${dates[r.start]} ~ ${dates[r.end]} (${r.end - r.start + 1}天)`;
+            }
         }
 
         function updateStats() {
@@ -1148,24 +1174,15 @@
             
             const data = fullData.chart;
             const total = data.dates.length;
-            const winFrom = Math.max(0, total - Math.min(252, total));
-            shAxisRange = shWindowRange(winFrom, total - 1);
 
-            // 更新数据（上证线同样按「最近一年窗口」归一化，避免加载全历史后线条整体跳位）
-            mainChart.setOption({
-                xAxis: { data: data.dates },
-                series: [
-                    { name: '上证指数', data: normShIndex(winFrom, total - 1) },
-                    { name: '恐贪指数', data: data.fgi }
-                ],
-                yAxis: [{}, { axisLabel: { formatter: shAxisFormatter } }]
-            });
-            
-            // 自动触发"近1年"按钮
-            setTimeout(() => {
-                setTimeRange(1);
-                console.log('[BG] 自动切换为近1年视图');
-            }, 100);
+            // 全历史加载后「整图重建」而不是 setOption 增量合并：
+            // 分类轴长度从 252 变成 2609 时增量合并会留下旧系列/旧 visualMap 状态，
+            // 表现为恐贪线只挤在右侧一小段、颜色分段错乱（2026-11-13 修）。
+            mainChart.dispose();
+            mainChart = null;
+            drawMainChart();
+            setTimeRange(1);
+            console.log('[BG] 已用全历史数据重建图表');
             
             updateInfoCard();
             updateStats();
