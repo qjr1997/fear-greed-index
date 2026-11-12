@@ -181,6 +181,48 @@ jobs:
         
         # 导数
         derivative = fgi.diff()
+
+        # ------------------------------------------------------------------
+        # V2 分位版（与 V1 的 z-score 版并列，不替代）
+        #   差异：① 用分位数而不是 z-score（对极值更稳、天然 0~100）
+        #         ② 双窗口：1 年(252) 看短期、3 年(750) 定基准
+        #         ③ 加"温度 × 变化"四象限
+        # ------------------------------------------------------------------
+        def calc_pct(series, window=750, min_obs=250, reverse=False):
+            """滚动分位数：当前值在"过去 window 个交易日"里的百分位（0~100）。"""
+            out = pd.Series(index=series.index, dtype=float)
+            for i in range(len(series)):
+                if i < min_obs - 1:
+                    continue
+                win = series.iloc[max(0, i - window + 1):i + 1].dropna()
+                if len(win) < min_obs:
+                    continue
+                val = series.iloc[i]
+                if pd.isna(val):
+                    continue
+                pct = float((win <= val).mean() * 100)
+                out.iloc[i] = 100 - pct if reverse else pct
+            return out
+
+        PCT_COLS = {
+            'volatility': True,
+            'volume': False,
+            'futures_premium': False,
+            'safe_haven': False,
+            'stock_strength': False,
+        }
+        pct1 = pd.DataFrame(index=indicators.index)
+        pct3 = pd.DataFrame(index=indicators.index)
+        for _col, _rev in PCT_COLS.items():
+            if _col not in indicators.columns:
+                continue
+            pct1[_col] = calc_pct(indicators[_col], window=252, min_obs=200, reverse=_rev)
+            pct3[_col] = calc_pct(indicators[_col], window=750, min_obs=400, reverse=_rev)
+
+        v2_fgi_1y = pct1.mean(axis=1).clip(0, 100)
+        v2_fgi_3y = pct3.mean(axis=1).clip(0, 100)
+        v2_main = v2_fgi_3y
+        v2_delta5 = v2_main.diff(5)
         
         # 准备输出
         print("Preparing output...")
@@ -203,6 +245,46 @@ jobs:
         def _arr_z(series, idx):
             return _arr(series, idx, 1, default=50.0)
         
+        # V2 分位版：最新值 + 温度×变化四象限
+        _v2_idx = v2_main.dropna().index[-1] if not v2_main.dropna().empty else None
+        if _v2_idx is None:
+            _v2_latest = {"fgi": None, "fgi_1y": None, "fgi_3y": None,
+                          "delta5": None, "quad": None, "quad_label": "", "quad_desc": ""}
+        else:
+            _v2_val = float(v2_main.loc[_v2_idx])
+            _v2_1y = float(v2_fgi_1y.loc[_v2_idx]) if not pd.isna(v2_fgi_1y.loc[_v2_idx]) else None
+            _d5_s = v2_delta5.dropna()
+            _v2_d5 = float(_d5_s.iloc[-1]) if not _d5_s.empty else 0.0
+            _hot = _v2_val > 50
+            _up = _v2_d5 > 0.5
+            _down = _v2_d5 < -0.5
+            if _hot and _up:
+                _quad, _label = "hot_up", "高温走强"
+                _desc = "分位分在 50 以上，且近 5 日在往上走——乐观还在累积"
+            elif _hot and _down:
+                _quad, _label = "hot_down", "高温回落"
+                _desc = "分位分在 50 以上，但近 5 日在往下退——热度在流失"
+            elif (not _hot) and _up:
+                _quad, _label = "cold_up", "低温回升"
+                _desc = "分位分在 50 以下，近 5 日在回暖——情绪从冷区往上勾"
+            elif (not _hot) and _down:
+                _quad, _label = "cold_down", "低温走弱"
+                _desc = "分位分在 50 以下，且近 5 日还在往下——冷区里继续变冷"
+            else:
+                _quad, _label = "flat", "横着走"
+                _desc = "近 5 日变化很小，温度基本停在原地"
+            _v2_latest = {
+                "fgi": round(_v2_val, 1),
+                "fgi_1y": round(_v2_1y, 1) if _v2_1y is not None else None,
+                "fgi_3y": round(float(v2_fgi_3y.loc[_v2_idx]), 1) if not pd.isna(v2_fgi_3y.loc[_v2_idx]) else None,
+                "delta5": round(_v2_d5, 2),
+                "quad": _quad,
+                "quad_label": _label,
+                "quad_desc": _desc,
+            }
+        print(f"V2 分位版: {_v2_latest.get('fgi')}（1年 {_v2_latest.get('fgi_1y')}）"
+              f" 5日变化 {_v2_latest.get('delta5')} → {_v2_latest.get('quad_label')}")
+
         # 一句话解读（comment_engine.py：只描述状态，不预测、不给建议）
         try:
             from comment_engine import build_comment
@@ -229,6 +311,7 @@ jobs:
                 "comment": _comment.get("headline", ""),
                 "comment_detail": _comment.get("detail", ""),
                 "comment_tags": _comment.get("tags", []),
+                "v2": _v2_latest,
             },
             "chart": {
                 "dates": chart_data.index.strftime('%Y-%m-%d').tolist(),
@@ -240,7 +323,8 @@ jobs:
                 "volume_zscore": _arr_z(zscores['volume_zscore'], chart_data.index),
                 "futures_premium_zscore": _arr_z(zscores['futures_premium_zscore'], chart_data.index),
                 "safe_haven_zscore": _arr_z(zscores['safe_haven_zscore'], chart_data.index),
-                "stock_strength_zscore": _arr_z(zscores['stock_strength_zscore'], chart_data.index)
+                "stock_strength_zscore": _arr_z(zscores['stock_strength_zscore'], chart_data.index),
+                "v2_fgi_3y": _arr(v2_fgi_3y, chart_data.index, 1, default=50.0)
             },
             "update_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }

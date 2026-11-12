@@ -153,6 +153,75 @@
         @media (max-width: 768px) {
             .gc-main { font-size: 14px; }
         }
+
+        .v2-line {
+            text-align: center;
+            font-size: 13px;
+            color: #a8b0bd;
+            margin: -6px auto 16px;
+            line-height: 1.7;
+        }
+
+        .v2-tag {
+            display: inline-block;
+            font-size: 11px;
+            padding: 1px 7px;
+            border-radius: 9px;
+            border: 1px solid #3d4655;
+            color: #8fa0b5;
+            margin-right: 6px;
+        }
+
+        .v2-line b { color: #e6e8ee; }
+
+        .method {
+            max-width: 720px;
+            margin: 0 auto 20px;
+            padding: 0 16px;
+            font-size: 13px;
+            color: #a8b0bd;
+        }
+
+        .method summary {
+            cursor: pointer;
+            color: #8892a0;
+            font-size: 12px;
+            padding: 6px 0;
+            list-style: none;
+        }
+
+        .method summary::-webkit-details-marker { display: none; }
+
+        .method summary::before { content: "▸ "; }
+
+        .method[open] summary::before { content: "▾ "; }
+
+        .method-body {
+            border: 1px solid var(--panel-border, #2a3240);
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-top: 6px;
+            line-height: 1.8;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .method-body ul { padding-left: 18px; margin: 6px 0; }
+
+        .method-body li { margin: 3px 0; }
+
+        .m-h { color: #c8d0da; font-weight: 600; margin-top: 12px; }
+
+        .m-h:first-child { margin-top: 0; }
+
+        .m-code {
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 12px;
+            color: #9fb3c8;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 8px 10px;
+            border-radius: 8px;
+            line-height: 1.7;
+        }
         
         .time-buttons {
             display: flex;
@@ -373,6 +442,34 @@
                     <div class="gc-sub" id="gcSub"></div>
                 </div>
                 
+                <div class="v2-line" id="v2Line" style="display:none"></div>
+
+                <details class="method">
+                    <summary>计算方法（点开看）</summary>
+                    <div class="method-body">
+                        <div class="m-h">一、五个原始指标</div>
+                        <ul>
+                            <li><b>波动率</b>：中国波指 VIX（50ETF 期权隐含波动率）。<i>越低 = 越平静</i></li>
+                            <li><b>成交量</b>：(沪深两市成交额 ÷ 20 日均额 − 1) × 100</li>
+                            <li><b>期指升贴水</b>：(IF 主力 − 沪深300) ÷ 沪深300 × 100 × 252/30，取 10 日均</li>
+                            <li><b>避险需求</b>：沪深300 20 日涨幅 − 中债指数 20 日涨幅</li>
+                            <li><b>股价强度</b>：(沪深300 − 50 日均线) ÷ 50 日均线 × 100</li>
+                        </ul>
+                        <div class="m-h">二、标准化成 0~100 分（V1，主口径）</div>
+                        <p class="m-code">z = (今日值 − 过去 252 日均值) ÷ 过去 252 日标准差<br>
+                        得分 = 50 + z × 33.3　（波动率取 100 − 得分，反向）</p>
+                        <p>50 = 一年中位；±1.5 个标准差就打到 0 / 100。单项不截断，所以会出现 &gt;100 或负分。</p>
+                        <div class="m-h">三、合成</div>
+                        <p class="m-code">恐贪指数 = 五项等权平均，再截断到 0~100<br>
+                        导数 = 今日 − 昨日（看情绪在升温还是退潮）</p>
+                        <p>五档：&lt;20 极度恐惧 ｜ 20~40 恐惧 ｜ 40~60 中性 ｜ 60~80 贪婪 ｜ &gt;80 极度贪婪</p>
+                        <div class="m-h">四、V2 分位版（并列对照，不替代 V1）</div>
+                        <p>同样五个指标，但改用<b>分位数</b>（当前值在过去 N 个交易日里的百分位，天然 0~100，对极值更稳），并且<b>双窗口</b>：1 年看短期、3 年定基准；再加「<b>温度 × 变化</b>」四象限——低温回升 / 低温走弱 / 高温走强 / 高温回落。</p>
+                        <div class="m-h">五、一句话解读</div>
+                        <p>五个分项各分 7 档（≤8 / ≤22 / ≤38 / ≤62 / ≤78 / ≤92 / &gt;92），按优先级匹配 18 种局面（全面恐惧、平静阴跌、放量下跌、期指贴水、指标分裂…），主句 + 最强/最弱项依据。只描述状态，不预测、不构成建议。</p>
+                    </div>
+                </details>
+
                 <div class="stats-title" style="text-align: center; color: #8892a0; font-size: 12px; margin-bottom: 8px;">分布统计 (全历史)</div>
                 <div class="stats-grid">
                     <div class="stat-item bg-extreme-fear">
@@ -903,6 +1000,24 @@
             document.getElementById('currentFGI').textContent = latest.fgi.toFixed(1);
             document.getElementById('currentDer').textContent = latest.derivative.toFixed(1);
             document.getElementById('currentShIndex').textContent = data.sh_index[idx].toFixed(2);
+
+            // V2 分位版（由每日任务生成，见 update-data.yml 的 calc_pct 段）
+            const v2 = latest.v2 || null;
+            const v2Line = document.getElementById('v2Line');
+            if (v2Line) {
+                if (v2 && v2.fgi !== null && v2.fgi !== undefined) {
+                    const d5 = Number(v2.delta5 || 0);
+                    const d5txt = (d5 > 0 ? '+' : '') + d5.toFixed(2);
+                    const oneY = (v2.fgi_1y !== null && v2.fgi_1y !== undefined)
+                        ? `　｜　1年窗 ${v2.fgi_1y.toFixed(1)}` : '';
+                    v2Line.innerHTML = '<span class="v2-tag">V2 分位版</span>'
+                        + `温度 <b>${Number(v2.fgi).toFixed(1)}</b>${oneY}`
+                        + `　｜　5日 ${d5txt}　｜　<b>${v2.quad_label || ''}</b>`;
+                    v2Line.style.display = 'block';
+                } else {
+                    v2Line.style.display = 'none';
+                }
+            }
 
             // 一句话解读（由每日任务生成，见 comment_engine.py）
             const cmt = latest.comment || '';
