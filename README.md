@@ -2,8 +2,10 @@
 
 基于5大指标的中国股市情绪指标，帮助投资者判断市场处于恐惧还是贪婪状态。
 
-![FGI](https://img.shields.io/badge/FGI-39.7-blue)
-![Data](https://img.shields.io/badge/Data-2017~2026-green)
+<!-- FGI:BADGE:START（由每日任务自动重写，勿手改）-->
+![FGI](https://img.shields.io/badge/FGI-64.4-blue)
+![数据](https://img.shields.io/badge/数据-2017~2026-green)
+<!-- FGI:BADGE:END -->
 
 ## 🌐 在线访问
 

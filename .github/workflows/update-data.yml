@@ -23,7 +23,8 @@ jobs:
         
     - name: Install dependencies
       run: |
-        pip install akshare pandas numpy
+        pip install "akshare==1.18.78" pandas numpy
+        python -c "import akshare; print('akshare', akshare.__version__)"
         
     - name: Update data
       run: |
@@ -205,6 +206,31 @@ jobs:
         
         with open('data.json', 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
+
+        # 同步刷新 README 顶部的数据徽章（避免像 2026-04 建站时那样半年不更新的死值）
+        try:
+            import re
+            try:  # 历史起始年以 data_full.json 为准（2017 起），取不到就退回 2017
+                start_year = json.load(open('data_full.json', encoding='utf-8'))['chart']['dates'][0][:4]
+            except Exception:
+                start_year = '2017'
+            end_year = str(latest_idx.year)
+            badge = (
+                "<!-- FGI:BADGE:START（由每日任务自动重写，勿手改）-->\n"
+                f"![FGI](https://img.shields.io/badge/FGI-{latest_fgi:.1f}-blue)\n"
+                f"![数据](https://img.shields.io/badge/数据-{start_year}~{end_year}-green)\n"
+                "<!-- FGI:BADGE:END -->"
+            )
+            with open('README.md', encoding='utf-8') as rf:
+                readme = rf.read()
+            readme = re.sub(
+                r'<!-- FGI:BADGE:START.*?FGI:BADGE:END -->', badge, readme, flags=re.S
+            )
+            with open('README.md', 'w', encoding='utf-8') as rf:
+                rf.write(readme)
+            print("README badge updated")
+        except Exception as e:
+            print(f"[warn] README 徽章更新失败（不影响数据）：{type(e).__name__}: {e}")
         
         print(f"Updated: {latest_idx.strftime('%Y-%m-%d')} FGI={latest_fgi:.1f}")
         print(f"Z-Scores: Vol={latest_zscores['volatility_zscore']:.1f}, VolRatio={latest_zscores['volume_zscore']:.1f}, "
@@ -216,6 +242,6 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add data.json
+        git add data.json README.md
         git diff --staged --quiet || git commit -m "Update data $(date +'%Y-%m-%d')"
         git push
