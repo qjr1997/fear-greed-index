@@ -37,6 +37,14 @@ jobs:
         import numpy as np
         from datetime import datetime, timedelta
         import time as _time
+
+        def _dedup(s):
+            """按日期去重（akshare 数据源偶尔返回同一天两行，例如 QVIX 的 2026-11-02），保留最后一行。
+            不去重会让 pd.concat 报 ValueError: cannot reindex on an axis with duplicate labels（2026-11-04 起每日失败的原因）。"""
+            dup = int(s.index.duplicated().sum())
+            if dup:
+                print(f"  [warn] {s.name}: 去掉 {dup} 个重复日期")
+            return s[~s.index.duplicated(keep='last')].sort_index()
         
         print("Getting market data...")
         
@@ -50,26 +58,26 @@ jobs:
         print("Fetching HS300...")
         hs300 = ak.stock_zh_a_hist_tx(symbol='sh000300', start_date=start_str, end_date=end_str)
         hs300['date'] = pd.to_datetime(hs300['date'])
-        hs300 = hs300.set_index('date')['close'].rename('hs300')
+        hs300 = _dedup(hs300.set_index('date')['close'].rename('hs300'))
         
         print("Fetching Bond Index...")
         bond = ak.stock_zh_a_hist_tx(symbol='sh000012', start_date=start_str, end_date=end_str)
         bond['date'] = pd.to_datetime(bond['date'])
-        bond = bond.set_index('date')['close'].rename('bond_index')
+        bond = _dedup(bond.set_index('date')['close'].rename('bond_index'))
         
         print("Fetching Turnover...")
         sh = ak.stock_zh_a_hist_tx(symbol='sh000001', start_date=start_str, end_date=end_str)
         sz = ak.stock_zh_a_hist_tx(symbol='sz399001', start_date=start_str, end_date=end_str)
         sh['date'] = pd.to_datetime(sh['date'])
         sz['date'] = pd.to_datetime(sz['date'])
-        turnover_sh = sh.set_index('date')['amount'].rename('turnover_sh')
-        turnover_sz = sz.set_index('date')['amount'].rename('turnover_sz')
+        turnover_sh = _dedup(sh.set_index('date')['amount'].rename('turnover_sh'))
+        turnover_sz = _dedup(sz.set_index('date')['amount'].rename('turnover_sz'))
         
         print("Fetching VIX...")
         try:
             vix_df = ak.index_option_50etf_qvix()
             vix_df['date'] = pd.to_datetime(vix_df['date'])
-            vix = vix_df.set_index('date')['close'].rename('vix')
+            vix = _dedup(vix_df.set_index('date')['close'].rename('vix'))
         except:
             # 如果VIX获取失败，用波动率代替
             returns = hs300.pct_change()
@@ -80,7 +88,7 @@ jobs:
         try:
             futures = ak.futures_main_sina(symbol='IF0')
             futures['日期'] = pd.to_datetime(futures['日期'])
-            futures = futures.set_index('日期')['收盘价'].rename('if_close')
+            futures = _dedup(futures.set_index('日期')['收盘价'].rename('if_close'))
         except:
             futures = None
         
