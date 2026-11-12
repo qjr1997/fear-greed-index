@@ -2,7 +2,12 @@
   "latest": {
     "date": "2026-11-12",
     "fgi": 52.5,
-    "derivative": 2.7
+    "derivative": 2.7,
+    "comment": "跌得没有声音，是情绪还没宣泄",
+    "comment_detail": "最强项 波动率 87（安静得有点反常）；最弱项 股价强度 3（指数远在50日线下方）；分歧明显",
+    "comment_tags": [
+      "calm_weak"
+    ]
   },
   "chart": {
     "dates": [
@@ -26116,5 +26121,5 @@
       2.8
     ]
   },
-  "update_time": "2026-11-12 15:42:22"
+  "update_time": "2026-11-12 23:50:44"
 }

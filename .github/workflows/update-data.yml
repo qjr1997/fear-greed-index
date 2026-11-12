@@ -30,6 +30,9 @@ jobs:
       run: |
         python << 'PYEOF'
         import json
+        import os
+        import sys
+        sys.path.insert(0, os.getcwd())  # 保证能 import 仓库根目录的 comment_engine.py
         import warnings
         warnings.filterwarnings('ignore')
         
@@ -200,11 +203,32 @@ jobs:
         def _arr_z(series, idx):
             return _arr(series, idx, 1, default=50.0)
         
+        # 一句话解读（comment_engine.py：只描述状态，不预测、不给建议）
+        try:
+            from comment_engine import build_comment
+            _comment = build_comment(
+                {
+                    "vol": float(latest_zscores['volatility_zscore']),
+                    "volume": float(latest_zscores['volume_zscore']),
+                    "futures": float(latest_zscores['futures_premium_zscore']),
+                    "safe_haven": float(latest_zscores['safe_haven_zscore']),
+                    "strength": float(latest_zscores['stock_strength_zscore']),
+                },
+                float(latest_fgi), float(latest_der),
+            )
+        except Exception as e:
+            print(f"[warn] 一句话解读生成失败（不影响数据）：{type(e).__name__}: {e}")
+            _comment = {"headline": "", "detail": "", "tags": []}
+        print(f"Comment: {_comment['headline']} | {_comment['detail']}")
+
         output = {
             "latest": {
                 "date": latest_idx.strftime('%Y-%m-%d'),
                 "fgi": round(float(latest_fgi), 1),
-                "derivative": round(float(latest_der), 1)
+                "derivative": round(float(latest_der), 1),
+                "comment": _comment.get("headline", ""),
+                "comment_detail": _comment.get("detail", ""),
+                "comment_tags": _comment.get("tags", []),
             },
             "chart": {
                 "dates": chart_data.index.strftime('%Y-%m-%d').tolist(),

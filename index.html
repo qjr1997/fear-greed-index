@@ -128,6 +128,31 @@
             color: #8892a0;
             margin-top: 8px;
         }
+
+        .gauge-comment {
+            text-align: center;
+            margin: -4px auto 18px;
+            max-width: 620px;
+            padding: 0 14px;
+        }
+
+        .gc-main {
+            font-size: 16px;
+            line-height: 1.65;
+            color: #e6e8ee;
+            font-weight: 500;
+        }
+
+        .gc-sub {
+            font-size: 12px;
+            line-height: 1.6;
+            color: #8892a0;
+            margin-top: 6px;
+        }
+
+        @media (max-width: 768px) {
+            .gc-main { font-size: 14px; }
+        }
         
         .time-buttons {
             display: flex;
@@ -342,6 +367,11 @@
         <div class="main-content">
             <div class="left-panel">
                 <div class="gauge-container" id="gaugeChart"></div>
+
+                <div class="gauge-comment" id="gaugeComment" style="display:none">
+                    <div class="gc-main" id="gcMain"></div>
+                    <div class="gc-sub" id="gcSub"></div>
+                </div>
                 
                 <div class="stats-title" style="text-align: center; color: #8892a0; font-size: 12px; margin-bottom: 8px;">分布统计 (全历史)</div>
                 <div class="stats-grid">
@@ -873,6 +903,20 @@
             document.getElementById('currentFGI').textContent = latest.fgi.toFixed(1);
             document.getElementById('currentDer').textContent = latest.derivative.toFixed(1);
             document.getElementById('currentShIndex').textContent = data.sh_index[idx].toFixed(2);
+
+            // 一句话解读（由每日任务生成，见 comment_engine.py）
+            const cmt = latest.comment || '';
+            const cmtDetail = latest.comment_detail || '';
+            const cmtBox = document.getElementById('gaugeComment');
+            if (cmtBox) {
+                if (cmt) {
+                    document.getElementById('gcMain').textContent = cmt;
+                    document.getElementById('gcSub').textContent = cmtDetail;
+                    cmtBox.style.display = 'block';
+                } else {
+                    cmtBox.style.display = 'none';
+                }
+            }
             document.getElementById('updateTime').textContent = fullData.update_time;
             
             // 数据范围
