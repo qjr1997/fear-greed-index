@@ -226,7 +226,7 @@ jobs:
 
         # 全历史文件 data_full.json（页面后台加载用；原来停在 2026-04-10 半年没更新）
         full_idx = fgi.dropna()
-        full_zs = zscores.reindex(full_idx)
+        full_zs = zscores.reindex(full_idx.index)   # 注意：reindex(Series) 会拿 Series 的值当标签 → 全 NaN，必须传 .index
         def _col_z(name):
             return [round(float(x), 1) if not np.isnan(x) else 50 for x in full_zs[name].tolist()]
         output_full = {
