@@ -99,6 +99,10 @@ jobs:
         if futures is not None:
             raw = raw.join(futures, how='outer')
         raw = raw.sort_index()
+        # 各数据源交易日历不完全一致，outer 合并后会有零散 NaN；
+        # 不填的话 rolling(50) 的窗口里只要有一个 NaN 整段就变 NaN ——
+        # 2026-08-22 起「股价强度」就这么静默失效了（Z-Score 一直是 nan，FGI 实际只用了 4 个指标）。
+        raw = raw.ffill()
         
         # 计算子指标
         print("Calculating indicators...")
@@ -182,7 +186,16 @@ jobs:
         latest_zscores = zscores.loc[latest_idx] if latest_idx in zscores.index else zscores.iloc[-1]
         
         chart_data = fgi.dropna().tail(252)
-        chart_zscores = zscores.loc[chart_data.index]
+
+        # 序列 -> 严格 JSON 数值数组：先按 dates 对齐、缺失前向填充，仍缺则给默认值。
+        # 关键：python 的 json.dump 会把 NaN 写成裸 NaN（不是合法 JSON），
+        # 浏览器 JSON.parse 直接报 "Unexpected token 'N'"，整页数据加载失败（2026-11-12 踩过）。
+        def _arr(series, idx, nd, default=0.0):
+            s = series.reindex(idx).ffill()
+            return [round(float(x), nd) if not np.isnan(x) else default for x in s.tolist()]
+
+        def _arr_z(series, idx):
+            return _arr(series, idx, 1, default=50.0)
         
         output = {
             "latest": {
@@ -192,14 +205,14 @@ jobs:
             },
             "chart": {
                 "dates": chart_data.index.strftime('%Y-%m-%d').tolist(),
-                "fgi": [round(float(x), 1) for x in chart_data.tolist()],
-                "derivative": [round(float(x), 1) for x in derivative.dropna().tail(252).tolist()],
-                "hs300": [round(float(x), 2) for x in raw['hs300'].tail(252).tolist()],
-                "volatility_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['volatility_zscore'].tolist()],
-                "volume_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['volume_zscore'].tolist()],
-                "futures_premium_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['futures_premium_zscore'].tolist()],
-                "safe_haven_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['safe_haven_zscore'].tolist()],
-                "stock_strength_zscore": [round(float(x), 1) if not np.isnan(x) else 50 for x in chart_zscores['stock_strength_zscore'].tolist()]
+                "fgi": _arr(chart_data, chart_data.index, 1),
+                "derivative": _arr(derivative, chart_data.index, 1),
+                "hs300": _arr(raw['hs300'], chart_data.index, 2),
+                "volatility_zscore": _arr_z(zscores['volatility_zscore'], chart_data.index),
+                "volume_zscore": _arr_z(zscores['volume_zscore'], chart_data.index),
+                "futures_premium_zscore": _arr_z(zscores['futures_premium_zscore'], chart_data.index),
+                "safe_haven_zscore": _arr_z(zscores['safe_haven_zscore'], chart_data.index),
+                "stock_strength_zscore": _arr_z(zscores['stock_strength_zscore'], chart_data.index)
             },
             "update_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
@@ -218,7 +231,7 @@ jobs:
                 "dates": full_idx.index.strftime('%Y-%m-%d').tolist(),
                 "fgi": [round(float(x), 1) for x in full_idx.tolist()],
                 "derivative": [round(float(x), 1) if not np.isnan(x) else 0 for x in derivative.reindex(full_idx.index).tolist()],
-                "hs300": [round(float(x), 2) if not np.isnan(x) else 0 for x in raw['hs300'].reindex(full_idx.index).tolist()],
+                "hs300": _arr(raw['hs300'], full_idx.index, 2),
                 "volatility_zscore": _col_z('volatility_zscore'),
                 "volume_zscore": _col_z('volume_zscore'),
                 "futures_premium_zscore": _col_z('futures_premium_zscore'),
@@ -230,6 +243,16 @@ jobs:
         with open('data_full.json', 'w', encoding='utf-8') as f:
             json.dump(output_full, f, ensure_ascii=False, indent=2)
         print(f"data_full.json: {len(full_idx)} 行 {full_idx.index[0].strftime('%Y-%m-%d')}~{full_idx.index[-1].strftime('%Y-%m-%d')}")
+
+        # 严格校验：宁可让 CI 红，也不要推送浏览器解析不了的 JSON（NaN/Infinity）
+        def _strict_check(fn):
+            raw_txt = open(fn, encoding='utf-8').read()
+            def _bad(x):
+                raise ValueError(f"{fn} 含非法 JSON 常量 {x}")
+            json.loads(raw_txt, parse_constant=_bad)
+            print(f"{fn}: 严格 JSON 校验通过 ({len(raw_txt)} bytes)")
+        _strict_check('data.json')
+        _strict_check('data_full.json')
 
         # 同步刷新 README 顶部的数据徽章（避免像 2026-04 建站时那样半年不更新的死值）
         try:
