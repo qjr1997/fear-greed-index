@@ -520,6 +520,38 @@
         }
         
         // 获取当前图表可见范围
+        // ===== 上证指数走势线的归一化（2026-11-12 修：原来用「全历史 min/max」归一化，
+        // 近一年视图里这条线会被压成一条几乎水平的怪线；而且全量历史加载完成后再按 10 年极值重算，
+        // 线会整体跳一下。现在改成始终按「当前可见窗口」归一化，并让左轴显示真实点位。）=====
+        let shAxisRange = { min: 0, max: 0 };
+
+        function shWindowRange(from, to) {
+            const arr = (fullData && fullData.chart && fullData.chart.sh_index) || [];
+            let min = Infinity, max = -Infinity;
+            for (let i = Math.max(0, from); i <= Math.min(arr.length - 1, to); i++) {
+                const v = arr[i];
+                if (typeof v === 'number' && isFinite(v)) {
+                    if (v < min) min = v;
+                    if (v > max) max = v;
+                }
+            }
+            if (!isFinite(min) || !isFinite(max) || max === min) { min = 0; max = 1; }
+            return { min, max };
+        }
+
+        function normShIndex(from, to) {
+            const arr = (fullData && fullData.chart && fullData.chart.sh_index) || [];
+            const r = shWindowRange(from, to);
+            return arr.map((v, i) => (i >= from && i <= to)
+                ? (((v - r.min) / (r.max - r.min)) * 100)
+                : null);
+        }
+
+        function shAxisFormatter(v) {
+            const val = shAxisRange.min + (v / 100) * (shAxisRange.max - shAxisRange.min);
+            return Math.round(val);
+        }
+
         function getVisibleRange() {
             if (!mainChart) return { start: 0, end: fullData.chart.fgi.length - 1 };
             
@@ -602,14 +634,15 @@
             const chartDom = document.getElementById('mainChart');
             mainChart = echarts.init(chartDom, 'dark');
             
-            const shIndexMin = Math.min(...data.sh_index);
-            const shIndexMax = Math.max(...data.sh_index);
-            const shIndexNorm = data.sh_index.map(v => ((v - shIndexMin) / (shIndexMax - shIndexMin)) * 100);
-            
-            // 默认显示最近2年，但保留全部历史可通过缩放查看
+            // 默认显示最近1年，但保留全部历史可通过缩放查看
             const totalDays = data.dates.length;
-            const defaultShowDays = Math.min(252, totalDays); // 默认显示最近1年
+            const defaultShowDays = Math.min(252, totalDays);
             const startPercent = Math.max(0, (totalDays - defaultShowDays) / totalDays * 100);
+
+            // 上证指数按「可见窗口」归一化到 0~100，与恐贪指数共用同一视觉区间
+            const winFrom = Math.max(0, totalDays - defaultShowDays);
+            shAxisRange = shWindowRange(winFrom, totalDays - 1);
+            const shIndexNorm = normShIndex(winFrom, totalDays - 1);
             
             const option = {
                 backgroundColor: 'transparent',
@@ -696,7 +729,12 @@
                         max: 100,
                         position: 'left',
                         axisLine: { show: false },
-                        axisLabel: { show: false },
+                        nameTextStyle: { color: '#8892a0' },
+                        axisLabel: {
+                            show: true,
+                            color: '#8892a0',
+                            formatter: shAxisFormatter
+                        },
                         splitLine: { show: false }
                     }
                 ],
@@ -723,6 +761,7 @@
                 ],
                 visualMap: {
                     show: false,
+                    seriesIndex: 1,
                     dimension: 1,
                     pieces: [
                         {lte: 20, color: '#00d4aa'},
@@ -783,8 +822,9 @@
             
             mainChart.setOption(option);
             
-            // 监听dataZoom事件，同步更新统计
-            mainChart.on('dataZoom', function (params) {
+            // 监听dataZoom事件：重算上证指数的窗口归一化 + 更新左轴真实点位 + 同步统计
+            mainChart.on('dataZoom', function () {
+                syncShIndexToWindow();
                 updateStats();
             });
             
@@ -794,6 +834,16 @@
             document.getElementById('chartRange').textContent = `${firstDate} ~ ${lastDate} (${totalDays}天)`;
         }
         
+        function syncShIndexToWindow() {
+            if (!mainChart || !fullData || !fullData.chart) return;
+            const r = getVisibleRange();
+            shAxisRange = shWindowRange(r.start, r.end);
+            mainChart.setOption({
+                series: [{ name: '上证指数', data: normShIndex(r.start, r.end) }],
+                yAxis: [{}, { axisLabel: { formatter: shAxisFormatter } }]
+            }, { lazyUpdate: true });
+        }
+
         function updateStats() {
             const range = getVisibleRange();
             const stats = calcStats(fullData.chart.fgi, range.start, range.end);
@@ -938,17 +988,18 @@
             if (!mainChart) return;
             
             const data = fullData.chart;
-            const shIndexMin = Math.min(...data.sh_index);
-            const shIndexMax = Math.max(...data.sh_index);
-            const shIndexNorm = data.sh_index.map(v => ((v - shIndexMin) / (shIndexMax - shIndexMin)) * 100);
-            
-            // 更新数据
+            const total = data.dates.length;
+            const winFrom = Math.max(0, total - Math.min(252, total));
+            shAxisRange = shWindowRange(winFrom, total - 1);
+
+            // 更新数据（上证线同样按「最近一年窗口」归一化，避免加载全历史后线条整体跳位）
             mainChart.setOption({
                 xAxis: { data: data.dates },
                 series: [
-                    { name: '上证指数', data: shIndexNorm },
+                    { name: '上证指数', data: normShIndex(winFrom, total - 1) },
                     { name: '恐贪指数', data: data.fgi }
-                ]
+                ],
+                yAxis: [{}, { axisLabel: { formatter: shAxisFormatter } }]
             });
             
             // 自动触发"近1年"按钮
