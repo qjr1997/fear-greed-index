@@ -49,9 +49,9 @@ jobs:
         
         print("Getting market data...")
         
-        # 数据范围
+        # 数据范围：2017-01-01 起（全历史，用于 data_full.json）；页面首屏只用近 252 天
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=600)
+        start_date = datetime(2017, 1, 1)
         start_str = start_date.strftime('%Y%m%d')
         end_str = end_date.strftime('%Y%m%d')
         
@@ -207,6 +207,30 @@ jobs:
         with open('data.json', 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
 
+        # 全历史文件 data_full.json（页面后台加载用；原来停在 2026-04-10 半年没更新）
+        full_idx = fgi.dropna()
+        full_zs = zscores.reindex(full_idx)
+        def _col_z(name):
+            return [round(float(x), 1) if not np.isnan(x) else 50 for x in full_zs[name].tolist()]
+        output_full = {
+            "latest": output["latest"],
+            "chart": {
+                "dates": full_idx.index.strftime('%Y-%m-%d').tolist(),
+                "fgi": [round(float(x), 1) for x in full_idx.tolist()],
+                "derivative": [round(float(x), 1) if not np.isnan(x) else 0 for x in derivative.reindex(full_idx.index).tolist()],
+                "hs300": [round(float(x), 2) if not np.isnan(x) else 0 for x in raw['hs300'].reindex(full_idx.index).tolist()],
+                "volatility_zscore": _col_z('volatility_zscore'),
+                "volume_zscore": _col_z('volume_zscore'),
+                "futures_premium_zscore": _col_z('futures_premium_zscore'),
+                "safe_haven_zscore": _col_z('safe_haven_zscore'),
+                "stock_strength_zscore": _col_z('stock_strength_zscore')
+            },
+            "update_time": output["update_time"]
+        }
+        with open('data_full.json', 'w', encoding='utf-8') as f:
+            json.dump(output_full, f, ensure_ascii=False, indent=2)
+        print(f"data_full.json: {len(full_idx)} 行 {full_idx.index[0].strftime('%Y-%m-%d')}~{full_idx.index[-1].strftime('%Y-%m-%d')}")
+
         # 同步刷新 README 顶部的数据徽章（避免像 2026-04 建站时那样半年不更新的死值）
         try:
             import re
@@ -242,6 +266,6 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add data.json README.md
+        git add data.json data_full.json README.md
         git diff --staged --quiet || git commit -m "Update data $(date +'%Y-%m-%d')"
         git push
