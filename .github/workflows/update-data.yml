@@ -8,6 +8,12 @@ on:
 permissions:
   contents: write
 
+# 同一时刻只允许一个更新任务在跑；后到的排队而不是并行，
+# 否则两个进程同时 push 会撞车（"! [rejected] main -> main (fetch first)"）。
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
 jobs:
   update-data:
     runs-on: ubuntu-latest
@@ -404,4 +410,14 @@ jobs:
         git config --local user.name "GitHub Action"
         git add data.json data_full.json README.md
         git diff --staged --quiet || git commit -m "Update data $(date +'%Y-%m-%d')"
-        git push
+        # 推不上去就 rebase 再推，最多 5 次（并发/远端被别人改过时自愈）
+        for i in 1 2 3 4 5; do
+          if git push; then
+            echo "push ok (attempt $i)"
+            break
+          fi
+          echo "push 被拒，rebase 后重试 ($i/5)"
+          sleep 5
+          git pull --rebase --autostash origin main || true
+        done
+        git push || { echo "::error::push 连续失败，请人工检查"; exit 1; }
