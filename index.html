@@ -162,16 +162,6 @@
             line-height: 1.7;
         }
 
-        .v2-tag {
-            display: inline-block;
-            font-size: 11px;
-            padding: 1px 7px;
-            border-radius: 9px;
-            border: 1px solid #3d4655;
-            color: #8fa0b5;
-            margin-right: 6px;
-        }
-
         .v2-line b { color: #e6e8ee; }
 
         .method {
@@ -1036,8 +1026,7 @@
                     const d5txt = (d5 > 0 ? '+' : '') + d5.toFixed(2);
                     const oneY = (v2.fgi_1y !== null && v2.fgi_1y !== undefined)
                         ? `　｜　1年窗 ${v2.fgi_1y.toFixed(1)}` : '';
-                    v2Line.innerHTML = '<span class="v2-tag">V2 分位版</span>'
-                        + `温度 <b>${Number(v2.fgi).toFixed(1)}</b>${oneY}`
+                    v2Line.innerHTML = `温度 <b>${Number(v2.fgi).toFixed(1)}</b>${oneY}`
                         + `　｜　5日 ${d5txt}　｜　<b>${v2.quad_label || ''}</b>`;
                     v2Line.style.display = 'block';
                 } else {
