@@ -73,6 +73,9 @@ jobs:
         sz['date'] = pd.to_datetime(sz['date'])
         turnover_sh = _dedup(sh.set_index('date')['amount'].rename('turnover_sh'))
         turnover_sz = _dedup(sz.set_index('date')['amount'].rename('turnover_sz'))
+        # 首页主图要画「上证指数 vs 恐贪指数」对比线，前端强制读 chart.sh_index
+        # （2026-04 建站后的某次脚本改动把它弄丢了，页面一直报 data.sh_index is not iterable）
+        sh_index = _dedup(sh.set_index('date')['close'].rename('sh_index'))
         
         print("Fetching VIX...")
         try:
@@ -95,7 +98,7 @@ jobs:
         
         # 合并数据
         print("Merging data...")
-        raw = pd.concat([vix, turnover_sh, turnover_sz, hs300, bond], axis=1)
+        raw = pd.concat([vix, turnover_sh, turnover_sz, hs300, sh_index, bond], axis=1)
         if futures is not None:
             raw = raw.join(futures, how='outer')
         raw = raw.sort_index()
@@ -208,6 +211,7 @@ jobs:
                 "fgi": _arr(chart_data, chart_data.index, 1),
                 "derivative": _arr(derivative, chart_data.index, 1),
                 "hs300": _arr(raw['hs300'], chart_data.index, 2),
+                "sh_index": _arr(raw['sh_index'], chart_data.index, 2),
                 "volatility_zscore": _arr_z(zscores['volatility_zscore'], chart_data.index),
                 "volume_zscore": _arr_z(zscores['volume_zscore'], chart_data.index),
                 "futures_premium_zscore": _arr_z(zscores['futures_premium_zscore'], chart_data.index),
@@ -232,6 +236,7 @@ jobs:
                 "fgi": [round(float(x), 1) for x in full_idx.tolist()],
                 "derivative": [round(float(x), 1) if not np.isnan(x) else 0 for x in derivative.reindex(full_idx.index).tolist()],
                 "hs300": _arr(raw['hs300'], full_idx.index, 2),
+                "sh_index": _arr(raw['sh_index'], full_idx.index, 2),
                 "volatility_zscore": _col_z('volatility_zscore'),
                 "volume_zscore": _col_z('volume_zscore'),
                 "futures_premium_zscore": _col_z('futures_premium_zscore'),
